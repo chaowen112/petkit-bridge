@@ -83,15 +83,29 @@ class StreamAndRecordingTests(unittest.TestCase):
 
 
 class RetentionTests(unittest.TestCase):
-    def test_zero_retention_preserves_all_recordings(self):
+    def test_retention_defaults_to_thirty_days(self):
+        self.assertEqual(recorder.parse_retention_days(None), 30)
+        self.assertEqual(recorder.parse_retention_days(""), 30)
+
+    def test_retention_accepts_one_through_thirty_days(self):
+        self.assertEqual(recorder.parse_retention_days("1"), 1)
+        self.assertEqual(recorder.parse_retention_days("30"), 30)
+
+    def test_retention_rejects_zero_and_values_over_thirty_days(self):
+        for value in ("0", "31", "-1"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "1 to 30"):
+                    recorder.parse_retention_days(value)
+
+    def test_zero_retention_is_not_allowed_to_disable_cleanup(self):
         from pathlib import Path
         from tempfile import TemporaryDirectory
 
         with TemporaryDirectory() as directory:
-            old = Path(directory) / "old.mkv"
+            old = Path(directory) / "yumshare-solo-old.mkv"
             old.write_bytes(b"video")
-            removed = recorder.cleanup_old_recordings(directory, 0, now=10_000_000)
-            self.assertEqual(removed, 0)
+            with self.assertRaisesRegex(ValueError, "1 to 30"):
+                recorder.cleanup_old_recordings(directory, 0, now=10_000_000)
             self.assertTrue(old.exists())
 
     def test_positive_retention_removes_only_expired_mkv_files(self):

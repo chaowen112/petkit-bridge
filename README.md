@@ -243,7 +243,7 @@ The bridge recognizes the YumShare Solo feeder (`d4h`) and can obtain its live c
 
    If the account has exactly one camera-capable `d4h`, the recorder selects it automatically. If there are several, set `PETKIT_DEVICE_ID` in `.env` to the intended device.
 
-4. Files appear in `./recordings` as five-minute `.mkv` segments. Audio is off by default; set `PETKIT_RECORDING_AUDIO=1` only if you want room audio recorded. `PETKIT_RECORDING_RETENTION_DAYS=0` keeps files indefinitely; choose a positive retention value to auto-delete only old `yumshare-solo-*.mkv` segments. Unlimited retention can fill the NAS volume.
+4. Files appear in `./recordings` as five-minute `.mkv` segments. Audio is off by default; set `PETKIT_RECORDING_AUDIO=1` only if you want room audio archived too. Retention defaults to 30 days and is hard-limited to 1–30 days; older `yumshare-solo-*.mkv` segments are removed automatically. There is no infinite-retention setting.
 
 The go2rtc API and RTSP listeners are bound to loopback for the recorder; they are not exposed on the LAN by this example. The recorder profile is opt-in, so normal bridge/Homebridge use does not start continuous recording.
 

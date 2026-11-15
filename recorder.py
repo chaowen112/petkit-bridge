@@ -111,11 +111,22 @@ def build_ffmpeg_command(rtsp_url, output_pattern, segment_seconds, record_audio
     return command
 
 
+def parse_retention_days(value):
+    """Enforce the user's hard 30-day maximum; blank defaults to 30."""
+    if value is None or str(value).strip() == "":
+        return 30
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("PETKIT_RECORDING_RETENTION_DAYS must be from 1 to 30") from None
+    if days < 1 or days > 30:
+        raise ValueError("PETKIT_RECORDING_RETENTION_DAYS must be from 1 to 30")
+    return days
+
+
 def cleanup_old_recordings(directory, retention_days, now=None):
-    """Delete only expired files created by this recorder; zero means keep."""
-    retention_days = int(retention_days)
-    if retention_days <= 0:
-        return 0
+    """Delete expired recorder segments; retention is always capped at 30 days."""
+    retention_days = parse_retention_days(retention_days)
 
     root = Path(directory)
     if not root.is_dir():
@@ -247,14 +258,14 @@ def _run_recorder():
     device_id = os.environ.get("PETKIT_DEVICE_ID", "").strip() or None
     recordings_dir = Path(os.environ.get("RECORDINGS_DIR", "/recordings"))
     segment_seconds = int(os.environ.get("PETKIT_RECORDING_SEGMENT_SECONDS", "300"))
-    retention_days = int(os.environ.get("PETKIT_RECORDING_RETENTION_DAYS", "0"))
+    retention_days = parse_retention_days(
+        os.environ.get("PETKIT_RECORDING_RETENTION_DAYS")
+    )
     record_audio = os.environ.get("PETKIT_RECORDING_AUDIO", "0").lower() in {
         "1", "true", "yes", "on"
     }
     if segment_seconds <= 0:
         raise ValueError("PETKIT_RECORDING_SEGMENT_SECONDS must be positive")
-    if retention_days < 0:
-        raise ValueError("PETKIT_RECORDING_RETENTION_DAYS cannot be negative")
 
     recordings_dir.mkdir(parents=True, exist_ok=True)
     stop_event = threading.Event()
