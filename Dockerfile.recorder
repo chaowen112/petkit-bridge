@@ -1,0 +1,9 @@
+FROM alexxit/go2rtc:latest
+
+WORKDIR /app
+COPY recorder.py .
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+CMD ["python3", "/app/recorder.py"]

@@ -12,6 +12,7 @@ venv/
 # Local logs and dumps
 *.log
 dumps/
+recordings/
 
 # Editor / OS
 .vscode/

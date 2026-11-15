@@ -1,20 +1,19 @@
 # Copy to `docker-compose.yml`, then `cp .env.example .env` and fill it in.
 #
-# This file runs the two containers a full setup needs:
+# This file runs the bridge plus camera components:
 #   - petkit-bridge  the bridge itself (required)
-#   - go2rtc         only needed for cameras; delete the service otherwise
+#   - go2rtc         camera restreamer (needed for cameras)
+#   - petkit-recorder optional NAS archive (enable with --profile recording)
 #
-# Both use the host network so the Homebridge plugin can reach them on
-# 127.0.0.1 when it runs on the same machine. If you prefer isolated
-# networks, switch to `ports:` mappings (8787 for the bridge, 1984/8554
-# for go2rtc) and point the plugin at the host's LAN address instead.
+# Bridge and go2rtc use host networking. go2rtc's unauthenticated API and
+# RTSP/WebRTC listeners bind to loopback by default. If Homebridge is on a
+# different host, bind GO2RTC_*_LISTEN to 0.0.0.0 and firewall to that host;
+# never expose these ports to the WAN.
 
 services:
   petkit-bridge:
-    image: ghcr.io/raulhartzen/petkit-bridge:latest
-    # To build from source instead of pulling the image, replace the line
-    # above with:
-    # build: .
+    image: petkit-bridge:local
+    build: .
     container_name: petkit-bridge
     restart: unless-stopped
     network_mode: host
@@ -30,12 +29,40 @@ services:
       retries: 3
       start_period: 30s
 
-  # --- Cameras only ---------------------------------------------------
-  # go2rtc turns the bridge's WHEP streams into RTSP for ffmpeg/HomeKit.
-  # No configuration file is needed: the Homebridge plugin registers the
-  # camera streams on go2rtc's API at startup.
+  # --- Cameras --------------------------------------------------------
+  # go2rtc restreams WHEP as RTSP. Its unauthenticated API/RTSP listeners
+  # stay loopback-only; local services using host networking can reach them.
   go2rtc:
     image: alexxit/go2rtc:latest
     container_name: petkit-go2rtc
     restart: unless-stopped
     network_mode: host
+    environment:
+      GO2RTC_API_LISTEN: "${GO2RTC_API_LISTEN:-127.0.0.1:1984}"
+      GO2RTC_RTSP_LISTEN: "${GO2RTC_RTSP_LISTEN:-127.0.0.1:8554}"
+      GO2RTC_WEBRTC_LISTEN: "${GO2RTC_WEBRTC_LISTEN:-127.0.0.1:8555}"
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+
+  # Optional continuous NAS archive. Starts only with --profile recording.
+  # Saves 5-minute, no-transcode MKV segments in ./recordings by default.
+  petkit-recorder:
+    build:
+      context: .
+      dockerfile: Dockerfile.recorder
+    image: petkit-recorder:local
+    container_name: petkit-recorder
+    restart: unless-stopped
+    profiles: ["recording"]
+    network_mode: host
+    env_file: .env
+    environment:
+      BRIDGE_URL: http://127.0.0.1:8787
+      GO2RTC_API_URL: http://127.0.0.1:1984
+      GO2RTC_RTSP_URL: rtsp://127.0.0.1:8554/petkit_yumshare_solo
+      RECORDINGS_DIR: /recordings
+    volumes:
+      - ./recordings:/recordings
+    depends_on:
+      - petkit-bridge
+      - go2rtc

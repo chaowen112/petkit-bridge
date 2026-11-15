@@ -44,34 +44,18 @@ The bridge is designed to be **resilient to cloud session expiry**: the PetKit s
 
 ## Quick start
 
-Prebuilt images are published on GitHub Container Registry for `linux/amd64`
-and `linux/arm64` (Raspberry Pi 4/5), so no build step is needed:
+This fork builds the checked-out source so the bridge and optional recorder use the same code:
 
 ```bash
-mkdir petkit-bridge && cd petkit-bridge
-curl -O https://raw.githubusercontent.com/raulhartzen/petkit-bridge/main/.env.example
-curl -O https://raw.githubusercontent.com/raulhartzen/petkit-bridge/main/docker-compose.example.yml
-cp .env.example .env                                  # fill in credentials and token
-cp docker-compose.example.yml docker-compose.yml     # delete the go2rtc service if you have no cameras
-docker compose up -d
+git clone https://github.com/chaowen112/petkit-bridge.git
+cd petkit-bridge
+cp .env.example .env  # fill credentials, account region/timezone, and a strong BRIDGE_TOKEN
+cp docker-compose.example.yml docker-compose.yml
+docker compose up -d --build petkit-bridge
 docker compose logs -f petkit-bridge
 ```
 
-On a successful start you will see the login to the PetKit server and the discovery of your devices. Configuration happens exclusively via environment variables, documented one by one in [`.env.example`](.env.example).
-
-To update: `docker compose pull && docker compose up -d`.
-
-<details>
-<summary>Build from source instead</summary>
-
-```bash
-git clone https://github.com/raulhartzen/petkit-bridge.git
-cd petkit-bridge
-cp .env.example .env
-cp docker-compose.example.yml docker-compose.yml   # then replace `image:` with `build: .`
-docker compose up -d --build
-```
-</details>
+Use a dedicated PetKit account shared with the device; the bridge can be logged out when the same account is used in the phone app. Camera recording is opt-in; see [Local NAS recording](#local-nas-recording-no-care-storage-plan).
 
 ## API
 
@@ -209,7 +193,7 @@ go2rtc automatically re-serves every stream over RTSP (port `8554` by default), 
 bridge (WHEP) → go2rtc (RTSP :8554) → homebridge-camera-ffmpeg → Apple Home
 ```
 
-1. Configure the stream in `go2rtc.yaml` as shown above and check it plays in the go2rtc web UI (`http://<host>:1984`).
+1. Configure the stream in `go2rtc.yaml` as shown above and check it plays in the go2rtc WebUI (`http://127.0.0.1:1984` when accessing from the NAS itself). The API/RTSP listeners default to loopback; if Homebridge is on another host, set the `GO2RTC_*_LISTEN` values in `.env` to `0.0.0.0:<port>` and firewall them to that host. The go2rtc API has no authentication, so never expose it to the WAN.
 2. Install **homebridge-camera-ffmpeg** from the Homebridge UI and add a camera (via its settings form, or in `config.json`):
 
 ```json
@@ -235,6 +219,33 @@ Use `127.0.0.1` if Homebridge runs on the same host as go2rtc, otherwise the hos
 3. Restart Homebridge. Cameras are exposed as **individual accessories**: add each one in the Home app (**+ → Add Accessory → More options**) using the pairing code shown in the Homebridge log/UI.
 
 If the first live view stays black, retry after a few seconds: the initial request has to wake the whole chain (Home → ffmpeg → go2rtc → WHEP → PetKit cloud).
+
+## Local NAS recording (no Care+ storage plan)
+
+The bridge recognizes the YumShare Solo feeder (`d4h`) and can obtain its live camera stream. This optional recorder writes the live stream into local MKV segments under `./recordings` without re-encoding. PETKIT's manual distinguishes **real-time video** from Care+'s cloud timeline/full-clip playback ([manual](https://instructions.petkit.com/App%20Manual/D4H/D4H_User%20Manual_V1.1_20231122_EN_%20.pdf); [Care+ agreement](https://m.petkit.com/app/about/cloud-service-protocol/en.html)).
+
+**Important boundary:** this bypasses Care+ cloud storage, not PETKIT/Agora cloud entirely. The bridge still needs a PETKIT account and the live-feed session from Agora. The recording is continuous while the recording profile is running; it is not a copy of PETKIT's event-triggered cloud clips. Actual access to live video can vary by account/region/firmware and must be verified on the device.
+
+1. Put this project on a persistent NAS data volume, copy `.env.example` to `.env`, and fill in a **dedicated** PETKIT account, its real region/timezone, and a strong `BRIDGE_TOKEN`. Do not commit `.env`.
+2. Start the bridge and make sure its logs show a successful login and device discovery:
+
+   ```bash
+   docker compose up -d --build petkit-bridge
+   docker compose logs -f petkit-bridge
+   ```
+
+3. Enable local recording:
+
+   ```bash
+   docker compose --profile recording up -d --build
+   docker compose logs -f petkit-recorder
+   ```
+
+   If the account has exactly one camera-capable `d4h`, the recorder selects it automatically. If there are several, set `PETKIT_DEVICE_ID` in `.env` to the intended device.
+
+4. Files appear in `./recordings` as five-minute `.mkv` segments. Audio is off by default; set `PETKIT_RECORDING_AUDIO=1` only if you want room audio recorded. `PETKIT_RECORDING_RETENTION_DAYS=0` keeps files indefinitely; choose a positive retention value to auto-delete only old `yumshare-solo-*.mkv` segments. Unlimited retention can fill the NAS volume.
+
+The go2rtc API and RTSP listeners are bound to loopback for the recorder; they are not exposed on the LAN by this example. The recorder profile is opt-in, so normal bridge/Homebridge use does not start continuous recording.
 
 ## Security
 
