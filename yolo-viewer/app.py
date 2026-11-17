@@ -88,10 +88,10 @@ class Viewer:
             confidence = 0.6
         self.cat_alert_min_confidence = confidence if 0.0 <= confidence <= 1.0 else 0.6
         try:
-            cooldown = float(os.getenv("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "60"))
+            cooldown = float(os.getenv("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "10"))
         except ValueError:
-            cooldown = 60.0
-        self.cat_alert_cooldown_seconds = max(60.0, cooldown) if math.isfinite(cooldown) else 60.0
+            cooldown = 10.0
+        self.cat_alert_cooldown_seconds = max(10.0, cooldown) if math.isfinite(cooldown) else 10.0
         self._alert_lock = threading.Lock()
         self.alert_dir = ALERT_DIR
         self.alert_state_path = self.alert_dir / "cat_alert_last_sent"
@@ -152,7 +152,7 @@ class Viewer:
             time.sleep(1)
 
     def _claim_cat_alert_slot(self, now: float | None = None) -> bool:
-        """Enforce a hard one-photo-per-minute minimum cooldown."""
+        """Enforce a hard one-photo-per-ten-seconds minimum cooldown."""
         if not self.alert_target:
             return False
         now = time.time() if now is None else now

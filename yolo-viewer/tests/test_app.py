@@ -50,7 +50,7 @@ def test_cat_confidence_ignores_below_threshold_and_non_cat():
     assert cat_confidence(result, 0.6) is None
 
 
-def test_cat_alert_cooldown_never_faster_than_one_minute(tmp_path, monkeypatch):
+def test_cat_alert_cooldown_never_faster_than_ten_seconds(tmp_path, monkeypatch):
     from app import Viewer
 
     monkeypatch.setenv("YOLO_CAT_ALERT_TARGET", "telegram:-100123:4478")
@@ -58,8 +58,8 @@ def test_cat_alert_cooldown_never_faster_than_one_minute(tmp_path, monkeypatch):
     viewer = Viewer("")
     viewer.alert_state_path = tmp_path / "last-alert-time"
     assert viewer._claim_cat_alert_slot(now=100.0) is True
-    assert viewer._claim_cat_alert_slot(now=159.99) is False
-    assert viewer._claim_cat_alert_slot(now=160.0) is True
+    assert viewer._claim_cat_alert_slot(now=109.99) is False
+    assert viewer._claim_cat_alert_slot(now=110.0) is True
 
 
 def test_cat_alert_cooldown_survives_viewer_restart(tmp_path, monkeypatch):
@@ -73,8 +73,8 @@ def test_cat_alert_cooldown_survives_viewer_restart(tmp_path, monkeypatch):
 
     restarted = Viewer("")
     restarted.alert_state_path = state_path
-    assert restarted._claim_cat_alert_slot(now=159.99) is False
-    assert restarted._claim_cat_alert_slot(now=160.0) is True
+    assert restarted._claim_cat_alert_slot(now=109.99) is False
+    assert restarted._claim_cat_alert_slot(now=110.0) is True
 
 
 def test_cat_detection_dispatches_only_one_annotated_photo_per_cooldown(tmp_path, monkeypatch):
@@ -108,7 +108,7 @@ def test_cat_detection_dispatches_only_one_annotated_photo_per_cooldown(tmp_path
     frame = Frame()
 
     viewer._maybe_send_cat_alert(result, frame, now=100.0)
-    viewer._maybe_send_cat_alert(result, frame, now=159.99)
+    viewer._maybe_send_cat_alert(result, frame, now=109.99)
 
     assert len(sent) == 1
     assert sent[0][1] == 0.83
