@@ -35,7 +35,7 @@ If HA has multiple PetKit cameras, set `YOLO_STREAM_NAME` to the intended stream
 
 ## Cat alerts to Telegram
 
-Set `YOLO_CAT_ALERT_TARGET=telegram:<chat_id>[:<thread_id>]` in the private `.env` to send an annotated JPEG when YOLO detects a cat. The viewer uses the already configured `hermes send` Telegram transport; no Telegram bot token is copied into this project. Default confidence threshold is `0.6`; cooldown has a hard minimum of 10 seconds, so continuous detections send at most one photo every 10 seconds. No video is sent. Use `hermes send --list telegram` to inspect configured targets.
+Set `YOLO_CAT_ALERT_TARGET=telegram:<chat_id>[:<thread_id>]` in the private `.env` to send an annotated JPEG when YOLO detects a cat. The viewer uses the already configured `hermes send` Telegram transport; no Telegram bot token is copied into this project. Default cat-alert confidence threshold is `0.3` (30%); cooldown has a hard minimum of 10 seconds, so continuous detections send at most one photo every 10 seconds. No video is sent. Use `hermes send --list telegram` to inspect configured targets.
 
 ## Validation
 

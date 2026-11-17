@@ -50,6 +50,24 @@ def test_cat_confidence_ignores_below_threshold_and_non_cat():
     assert cat_confidence(result, 0.6) is None
 
 
+def test_default_cat_alert_confidence_is_30_percent(monkeypatch):
+    from app import Viewer
+
+    monkeypatch.delenv("YOLO_CAT_ALERT_MIN_CONFIDENCE", raising=False)
+    assert Viewer("").cat_alert_min_confidence == 0.3
+
+
+def test_cat_alert_accepts_distant_cat_at_30_percent():
+    from types import SimpleNamespace
+    from app import cat_confidence
+
+    result = SimpleNamespace(
+        names={15: "cat"},
+        boxes=SimpleNamespace(cls=[15], conf=[0.31]),
+    )
+    assert cat_confidence(result, 0.3) == 0.31
+
+
 def test_cat_alert_cooldown_never_faster_than_ten_seconds(tmp_path, monkeypatch):
     from app import Viewer
 

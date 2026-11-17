@@ -101,10 +101,10 @@ class Viewer:
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.alert_target = os.getenv("YOLO_CAT_ALERT_TARGET", "").strip()
         try:
-            confidence = float(os.getenv("YOLO_CAT_ALERT_MIN_CONFIDENCE", "0.6"))
+            confidence = float(os.getenv("YOLO_CAT_ALERT_MIN_CONFIDENCE", "0.3"))
         except ValueError:
-            confidence = 0.6
-        self.cat_alert_min_confidence = confidence if 0.0 <= confidence <= 1.0 else 0.6
+            confidence = 0.3
+        self.cat_alert_min_confidence = confidence if 0.0 <= confidence <= 1.0 else 0.3
         try:
             cooldown = float(os.getenv("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "10"))
         except ValueError:

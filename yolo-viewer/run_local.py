@@ -127,8 +127,8 @@ def main() -> int:
     os.environ["YOLO_MODEL"] = values.get("YOLO_MODEL", "yolo11n.pt")
     os.environ["YOLO_INFERENCE_FPS"] = values.get("YOLO_INFERENCE_FPS", "2")
     os.environ["YOLO_CAT_ALERT_TARGET"] = alert_target
-    os.environ["YOLO_CAT_ALERT_MIN_CONFIDENCE"] = values.get("YOLO_CAT_ALERT_MIN_CONFIDENCE", "0.6")
-    os.environ["YOLO_CAT_ALERT_COOLDOWN_SECONDS"] = values.get("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "60")
+    os.environ["YOLO_CAT_ALERT_MIN_CONFIDENCE"] = values.get("YOLO_CAT_ALERT_MIN_CONFIDENCE", "0.3")
+    os.environ["YOLO_CAT_ALERT_COOLDOWN_SECONDS"] = values.get("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "10")
     os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 
     print(f"Viewer link (home LAN only): http://{link_host}:{port}/{viewer_token}", flush=True)
