@@ -5,6 +5,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 import time
@@ -39,6 +40,16 @@ def validate_url(value: str, scheme: str, variable: str) -> str:
     if parts.scheme != scheme or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise RuntimeError(f"{variable} must be a {scheme} URL without credentials/query")
     return value.rstrip("/")
+
+
+def validate_telegram_target(value: str) -> str:
+    """Accept only an explicit Telegram chat or forum-topic target."""
+    value = value.strip()
+    if not value:
+        return ""
+    if not re.fullmatch(r"telegram:-?\d+(?::\d+)?", value):
+        raise RuntimeError("Telegram target must be specified as telegram:<chat_id>[:<thread_id>]")
+    return value
 
 
 def api_get(api_base_url: str, path: str, username: str, password: str):
@@ -95,6 +106,7 @@ def main() -> int:
         values = load_local_env()
         api_url = validate_url(values.get("GO2RTC_API_URL", ""), "http", "GO2RTC_API_URL")
         rtsp_base = validate_url(values.get("GO2RTC_RTSP_BASE_URL", ""), "rtsp", "GO2RTC_RTSP_BASE_URL")
+        alert_target = validate_telegram_target(values.get("YOLO_CAT_ALERT_TARGET", ""))
         username = values.get("GO2RTC_API_USERNAME", "")
         password = values.get("GO2RTC_API_PASSWORD", "")
         if not username or not password:
@@ -114,6 +126,9 @@ def main() -> int:
     os.environ["YOLO_RTSP_URL"] = rtsp_url
     os.environ["YOLO_MODEL"] = values.get("YOLO_MODEL", "yolo11n.pt")
     os.environ["YOLO_INFERENCE_FPS"] = values.get("YOLO_INFERENCE_FPS", "2")
+    os.environ["YOLO_CAT_ALERT_TARGET"] = alert_target
+    os.environ["YOLO_CAT_ALERT_MIN_CONFIDENCE"] = values.get("YOLO_CAT_ALERT_MIN_CONFIDENCE", "0.6")
+    os.environ["YOLO_CAT_ALERT_COOLDOWN_SECONDS"] = values.get("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "60")
     os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 
     print(f"Viewer link (home LAN only): http://{link_host}:{port}/{viewer_token}", flush=True)

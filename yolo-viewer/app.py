@@ -3,10 +3,16 @@ from __future__ import annotations
 import os
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
+import math
+import shutil
+import subprocess
 import secrets
+import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import cv2
@@ -17,6 +23,44 @@ from ultralytics import YOLO
 
 MODEL_NAME = os.getenv("YOLO_MODEL", "yolo11n.pt")
 INFERENCE_FPS = max(0.1, float(os.getenv("YOLO_INFERENCE_FPS", "2")))
+ALERT_DIR = Path(__file__).resolve().parent / ".runtime"
+
+
+def cat_confidence(result: Any, threshold: float) -> float | None:
+    """Return the strongest cat detection at or above threshold."""
+    boxes = getattr(result, "boxes", None)
+    if boxes is None:
+        return None
+    class_ids: Any = getattr(boxes, "cls", None)
+    confidences: Any = getattr(boxes, "conf", None)
+    if class_ids is None or confidences is None:
+        return None
+    if hasattr(class_ids, "tolist"):
+        class_ids = class_ids.tolist()
+    if hasattr(confidences, "tolist"):
+        confidences = confidences.tolist()
+    names = getattr(result, "names", {})
+    strongest = None
+    for class_id, confidence in zip(class_ids, confidences):
+        if hasattr(class_id, "item"):
+            class_id = class_id.item()
+        if hasattr(confidence, "item"):
+            confidence = confidence.item()
+        try:
+            class_id = int(class_id)
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(names, dict):
+            name = names.get(class_id, names.get(str(class_id)))
+        else:
+            try:
+                name = names[class_id]
+            except (IndexError, KeyError, TypeError):
+                name = None
+        if name == "cat" and confidence >= threshold:
+            strongest = confidence if strongest is None else max(strongest, confidence)
+    return strongest
 
 
 def redact_source(url: str) -> str:
@@ -37,6 +81,23 @@ class Viewer:
         self.source_url = source_url
         self.model = None
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.alert_target = os.getenv("YOLO_CAT_ALERT_TARGET", "").strip()
+        try:
+            confidence = float(os.getenv("YOLO_CAT_ALERT_MIN_CONFIDENCE", "0.6"))
+        except ValueError:
+            confidence = 0.6
+        self.cat_alert_min_confidence = confidence if 0.0 <= confidence <= 1.0 else 0.6
+        try:
+            cooldown = float(os.getenv("YOLO_CAT_ALERT_COOLDOWN_SECONDS", "60"))
+        except ValueError:
+            cooldown = 60.0
+        self.cat_alert_cooldown_seconds = max(60.0, cooldown) if math.isfinite(cooldown) else 60.0
+        self._alert_lock = threading.Lock()
+        self.alert_dir = ALERT_DIR
+        self.alert_state_path = self.alert_dir / "cat_alert_last_sent"
+        self._last_alert_time = None
+        self.last_cat_alert = None
+        self.cat_alert_error = None
         self.frame = None
         self.connected = False
         self.last_error = None
@@ -77,6 +138,7 @@ class Viewer:
                                 self.model = YOLO(MODEL_NAME)
                             result = self.model.predict(frame, device=self.device, verbose=False)[0]
                             frame = result.plot()
+                            self._maybe_send_cat_alert(result, frame)
                             self.last_inference = time.time()
                         except Exception as exc:
                             self.last_error = f"Inference failed ({type(exc).__name__})"
@@ -89,10 +151,115 @@ class Viewer:
                 cap.release()
             time.sleep(1)
 
+    def _claim_cat_alert_slot(self, now: float | None = None) -> bool:
+        """Enforce a hard one-photo-per-minute minimum cooldown."""
+        if not self.alert_target:
+            return False
+        now = time.time() if now is None else now
+        with self._alert_lock:
+            try:
+                previous = float(self.alert_state_path.read_text(encoding="ascii").strip())
+            except FileNotFoundError:
+                previous = self._last_alert_time
+            except (OSError, ValueError):
+                self.cat_alert_error = "Could not read cat alert cooldown"
+                return False
+            if previous is not None and now - previous < self.cat_alert_cooldown_seconds:
+                return False
+            temporary_path = None
+            try:
+                self.alert_state_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                os.chmod(self.alert_state_path.parent, 0o700)
+                fd, temporary_name = tempfile.mkstemp(
+                    prefix=".cat-alert-state-", dir=self.alert_state_path.parent
+                )
+                temporary_path = Path(temporary_name)
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="ascii") as state_file:
+                    state_file.write(f"{now:.6f}\n")
+                    state_file.flush()
+                    os.fsync(state_file.fileno())
+                os.replace(temporary_path, self.alert_state_path)
+                self._last_alert_time = now
+                return True
+            except OSError:
+                self.cat_alert_error = "Could not persist cat alert cooldown"
+                if temporary_path is not None:
+                    try:
+                        temporary_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                return False
+
+    def _maybe_send_cat_alert(self, result: Any, annotated_frame, now: float | None = None):
+        confidence = cat_confidence(result, self.cat_alert_min_confidence)
+        if confidence is None or not self._claim_cat_alert_slot(now):
+            return
+        try:
+            threading.Thread(
+                target=self._send_cat_photo,
+                args=(annotated_frame.copy(), confidence),
+                name="petkit-cat-alert",
+                daemon=True,
+            ).start()
+        except RuntimeError:
+            self.cat_alert_error = "Telegram photo send failed"
+
+    def _send_cat_photo(self, annotated_frame, confidence: float) -> None:
+        """Send one annotated JPEG through Hermes' configured Telegram transport."""
+        image_path = None
+        try:
+            ok, encoded = cv2.imencode(".jpg", annotated_frame)
+            if not ok:
+                self.cat_alert_error = "Could not encode cat snapshot"
+                return
+            self.alert_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(self.alert_dir, 0o700)
+            with tempfile.NamedTemporaryFile(
+                mode="wb", prefix="petkit-cat-", suffix=".jpg", dir=self.alert_dir, delete=False
+            ) as image_file:
+                os.chmod(image_file.name, 0o600)
+                image_file.write(encoded.tobytes())
+                image_path = Path(image_file.name)
+            hermes = shutil.which("hermes")
+            if not hermes:
+                fallback = Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "hermes"
+                hermes = str(fallback) if fallback.is_file() else None
+            if not hermes:
+                self.cat_alert_error = "Hermes send CLI unavailable"
+                return
+            caption = f"YOLO detected cat ({confidence:.0%})\nMEDIA:{image_path}"
+            result = subprocess.run(
+                [hermes, "send", "--to", self.alert_target, "--quiet", caption],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0:
+                self.last_cat_alert = time.time()
+                self.cat_alert_error = None
+            else:
+                self.cat_alert_error = "Telegram photo send failed"
+        except (OSError, subprocess.SubprocessError):
+            self.cat_alert_error = "Telegram photo send failed"
+        finally:
+            if image_path is not None:
+                try:
+                    image_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def status(self):
         return {"configured": bool(self.source_url), "source": redact_source(self.source_url),
                 "connected": self.connected, "model": MODEL_NAME, "device": self.device,
-                "last_inference": self.last_inference, "error": self.last_error}
+                "last_inference": self.last_inference, "error": self.last_error,
+                "cat_alert_enabled": bool(self.alert_target),
+                "cat_alert_min_confidence": self.cat_alert_min_confidence,
+                "cat_alert_cooldown_seconds": self.cat_alert_cooldown_seconds,
+                "last_cat_alert": self.last_cat_alert,
+                "cat_alert_error": self.cat_alert_error}
 
 
 PAGE = """<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>PetKit YOLO viewer</title>

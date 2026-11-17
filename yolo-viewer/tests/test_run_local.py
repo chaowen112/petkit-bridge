@@ -35,3 +35,12 @@ def test_rtsp_url_uses_basic_auth_and_encodes_credentials():
     assert parts.password is not None
     assert unquote(parts.password) == "fake:password"
     assert parts.path == "/petkit_device-1"
+
+
+def test_telegram_alert_target_requires_a_numeric_telegram_chat():
+    from run_local import validate_telegram_target
+
+    assert validate_telegram_target("telegram:-100123:4478") == "telegram:-100123:4478"
+    assert validate_telegram_target("") == ""
+    with pytest.raises(RuntimeError, match="Telegram target"):
+        validate_telegram_target("https://example.com/")
