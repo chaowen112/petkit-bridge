@@ -144,3 +144,18 @@ def test_cat_photo_uses_hermes_sender_and_removes_private_temp_file(tmp_path, mo
     assert "YOLO detected cat (82%)" in sent[0][-1]
     assert list(tmp_path.iterdir()) == []
     assert viewer.last_cat_alert is not None
+
+
+def test_prediction_ignores_bowl_class_case_insensitively():
+    from app import predict_without_classes
+
+    class Model:
+        names = {0: "person", 15: "cat", 45: "Bowl"}
+
+        def predict(self, frame, **kwargs):
+            self.kwargs = kwargs
+            return ["result"]
+
+    model = Model()
+    assert predict_without_classes(model, "frame", "mps") == "result"
+    assert model.kwargs == {"device": "mps", "verbose": False, "classes": [0, 15]}

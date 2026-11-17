@@ -24,6 +24,7 @@ from ultralytics import YOLO
 MODEL_NAME = os.getenv("YOLO_MODEL", "yolo11n.pt")
 INFERENCE_FPS = max(0.1, float(os.getenv("YOLO_INFERENCE_FPS", "2")))
 ALERT_DIR = Path(__file__).resolve().parent / ".runtime"
+IGNORED_DETECTION_CLASSES = frozenset({"bowl"})
 
 
 def cat_confidence(result: Any, threshold: float) -> float | None:
@@ -61,6 +62,23 @@ def cat_confidence(result: Any, threshold: float) -> float | None:
         if name == "cat" and confidence >= threshold:
             strongest = confidence if strongest is None else max(strongest, confidence)
     return strongest
+
+
+def predict_without_classes(model: Any, frame: Any, device: str,
+                            excluded_names=IGNORED_DETECTION_CLASSES):
+    """Run inference without returning detections for ignored class labels."""
+    names = model.names
+    items = names.items() if isinstance(names, dict) else enumerate(names)
+    excluded = {str(name).strip().casefold() for name in excluded_names}
+    classes = []
+    for class_id, name in items:
+        if str(name).strip().casefold() in excluded:
+            continue
+        try:
+            classes.append(int(class_id))
+        except (TypeError, ValueError):
+            continue
+    return model.predict(frame, device=device, verbose=False, classes=classes)[0]
 
 
 def redact_source(url: str) -> str:
@@ -136,7 +154,7 @@ class Viewer:
                         try:
                             if self.model is None:
                                 self.model = YOLO(MODEL_NAME)
-                            result = self.model.predict(frame, device=self.device, verbose=False)[0]
+                            result = predict_without_classes(self.model, frame, self.device)
                             frame = result.plot()
                             self._maybe_send_cat_alert(result, frame)
                             self.last_inference = time.time()
@@ -258,6 +276,7 @@ class Viewer:
                 "cat_alert_enabled": bool(self.alert_target),
                 "cat_alert_min_confidence": self.cat_alert_min_confidence,
                 "cat_alert_cooldown_seconds": self.cat_alert_cooldown_seconds,
+                "ignored_classes": sorted(IGNORED_DETECTION_CLASSES),
                 "last_cat_alert": self.last_cat_alert,
                 "cat_alert_error": self.cat_alert_error}
 

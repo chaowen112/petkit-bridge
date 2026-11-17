@@ -29,7 +29,7 @@ Only the small stream relay runs beside HA; YOLO inference stays on the Mac. The
 5. Start the viewer: `uv run python run_local.py`. It verifies the authenticated go2rtc API, detects the HA-registered `petkit_…` stream, and prints a link.
 6. Open the link from a trusted device on the home LAN. The viewer requires an unguessable path token; do not publish it through the router or an unauthenticated public proxy.
 
-The RTSP password stays in the local `.env`; `run_local.py` builds the URL in memory, and the status endpoint redacts user/password/query data. The Mac performs inference and serves the annotated stream; go2rtc only relays the PetKit feed. The relay's API and RTSP endpoints must both require Basic Auth.
+The RTSP password stays in the local `.env`; `run_local.py` builds the URL in memory, and the status endpoint redacts user/password/query data. The Mac performs inference and serves the annotated stream; go2rtc only relays the PetKit feed. The relay's API and RTSP endpoints must both require Basic Auth. The viewer filters out the YOLO `bowl` class before drawing detections; `cat` and other classes remain enabled.
 
 If HA has multiple PetKit cameras, set `YOLO_STREAM_NAME` to the intended stream name. If no PetKit stream appears, check that HA's `go2rtc:` URL and credentials match the relay, and that the relay can reach HA on its LAN address. The first YOLO inference downloads `yolo11n.pt` if it is not cached and needs internet access.
 
