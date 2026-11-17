@@ -1,33 +1,42 @@
-# PetKit YOLO viewer — task template
+# PetKit YOLO viewer
 
-## Objective
-Serve an annotated, browser-viewable MJPEG stream from a PetKit bridge RTSP source using local YOLO inference on macOS (MPS when available, CPU fallback).
+Mac-native YOLO inference and a browser view for a PetKit camera already integrated with Home Assistant. Uses Apple MPS when available; CPU fallback otherwise.
 
-## Constraints
-- Runs on Mac with uv-managed Python 3.11; never modifies or starts bridge/Home Assistant services.
-- Configure RTSP URL through `YOLO_RTSP_URL`; never check in credentials.
-- Access by unguessable `YOLO_VIEWER_TOKEN` path; default bind address is Ethernet `192.168.0.10` (override only deliberately). No unauthenticated health, UI, or stream.
-- Logs/status redact RTSP username, password, query, and fragment. No fake feed when unconfigured.
+## Data path
 
-## Implementation
-- FastAPI UI, token-gated health and MJPEG routes; RTSP reconnect loop; inference rate limit; YOLO model/device status.
-- YOLO package downloads the configured model on first inference, so first use needs internet access.
+```text
+HA PetKit integration --signed WHEP--> lightweight go2rtc relay on HA's LAN
+      --> authenticated RTSP --> YOLO/MPS on Mac --> token-protected MJPEG page
+```
 
-## Tests
+Only the small stream relay runs beside HA; YOLO inference stays on the Mac. The HA PetKit integration registers its signed WHEP source with go2rtc, so the viewer needs no HA token or second PetKit login.
+
+## One-time setup
+
+1. Run a small go2rtc service on the same trusted LAN network as HA (a macvlan network works well). Require Basic Auth for both the API and RTSP; do not expose either port to the WAN. Make the API and RTSP ports reachable only on the private LAN.
+2. In Home Assistant's `configuration.yaml`, point the `go2rtc:` integration at the relay's LAN IP and set the matching API credentials:
+
+   ```yaml
+   go2rtc:
+     url: http://<GO2RTC_LAN_IP>:1984
+     username: "<GO2RTC_API_USERNAME>"
+     password: "<GO2RTC_API_PASSWORD>"
+   ```
+
+   Back up the file and restart HA after this change. HA will register the PetKit stream with go2rtc using its signed WHEP URL.
+3. Copy `.env.example` to `.env`; set `GO2RTC_API_URL`, `GO2RTC_RTSP_BASE_URL`, API username/password, and both viewer host fields to the Mac's LAN IP if you want phone access. Keep `.env` private; `run_local.py` enforces mode `0600`.
+4. Install dependencies once: `uv sync`.
+5. Start the viewer: `uv run python run_local.py`. It verifies the authenticated go2rtc API, detects the HA-registered `petkit_…` stream, and prints a link.
+6. Open the link from a trusted device on the home LAN. The viewer requires an unguessable path token; do not publish it through the router or an unauthenticated public proxy.
+
+The RTSP password stays in the local `.env`; `run_local.py` builds the URL in memory, and the status endpoint redacts user/password/query data. The Mac performs inference and serves the annotated stream; go2rtc only relays the PetKit feed. The relay's API and RTSP endpoints must both require Basic Auth.
+
+If HA has multiple PetKit cameras, set `YOLO_STREAM_NAME` to the intended stream name. If no PetKit stream appears, check that HA's `go2rtc:` URL and credentials match the relay, and that the relay can reach HA on its LAN address. The first YOLO inference downloads `yolo11n.pt` if it is not cached and needs internet access.
+
+## Validation
+
 ```sh
 uv run pytest -q
 ```
-Tests cover route auth, source masking, and disconnected/unconfigured status. Runtime inference separately exercised with an openly available image when feasible; that is not a PetKit stream test.
 
-## Deliverables
-`app.py`, `pyproject.toml`, `uv.lock`, `.python-version`, tests, `.env.example`, and this run guide.
-
-## Local run
-1. `cd /Users/chaowen/go/src/petkit-bridge/yolo-viewer`
-2. `cp .env.example .env`, then set `YOLO_RTSP_URL` to the bridge's RTSP URL and set `YOLO_VIEWER_TOKEN` to a generated random token. Never commit `.env`.
-3. `set -a; source .env; set +a`
-4. `uv sync`
-5. `uv run uvicorn app:app --host 192.168.0.10 --port 8765 --no-access-log`
-6. Visit `http://192.168.0.10:8765/$YOLO_VIEWER_TOKEN`; status is at the same path plus `/health`.
-
-Before a configured bridge URL is available, health reports `configured:false`, stream returns 503, and the UI displays setup-required. Avoid exposing the LAN port via router/public proxy. This prototype's token is a URL path credential: don't share it with untrusted clients.
+Tests cover viewer authorization, source redaction, disconnected behavior, go2rtc stream selection, URL validation, and RTSP credential encoding. Static-image MPS inference has been verified; that is not proof that the live PetKit stream works. The live link is valid only after HA registers the stream and the Mac viewer receives real RTSP frames.

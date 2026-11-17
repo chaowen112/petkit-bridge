@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import os
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 import secrets
 import threading
 import time
