@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+*.pt
+bus.jpg
+bus-test.jpg

@@ -1,0 +1,21 @@
+[project]
+name = "yolo-viewer"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "fastapi>=0.163.1",
+    "opencv-python-headless>=5.0.0.93",
+    "python-multipart>=0.0.34",
+    "ultralytics>=8.4.215",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
